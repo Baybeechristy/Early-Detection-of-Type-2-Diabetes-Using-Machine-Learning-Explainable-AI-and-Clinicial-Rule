@@ -4,9 +4,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 import shap
 import lime
 import lime.lime_tabular
+import io
+import base64
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -606,36 +612,38 @@ with tab1:
             st.markdown('<p class="section-label">Risk Assessment</p>',
                         unsafe_allow_html=True)
 
-            fig, ax = plt.subplots(figsize=(5, 2.2))
-            fig.patch.set_facecolor(BG)
-            style_ax(ax)
-            ax.barh(['Risk'], [100], color=GRID,
-                    height=0.4, edgecolor='none')
-            ax.barh(['Risk'], [pct], color=r_color,
-                    height=0.4, edgecolor='none', alpha=0.9)
-            ax.set_xlim(0, 100)
-            ax.axvline(15, color=AMBER, ls='--', lw=1.2, alpha=0.7)
-            ax.axvline(35, color=RED,   ls='--', lw=1.2, alpha=0.7)
-            ax.text(7.5,  0.42, 'Low',    color=GREEN,
-                    fontsize=8, ha='center')
-            ax.text(25,   0.42, 'Medium', color=AMBER,
-                    fontsize=8, ha='center')
-            ax.text(67.5, 0.42, 'High',   color=RED,
-                    fontsize=8, ha='center')
-            ax.text(pct, 0, f'{pct:.1f}%',
-                    color=TEXT, fontsize=14, fontweight='bold',
-                    ha='center', va='center')
-            ax.set_xlabel('Predicted Diabetes Risk (%)', color=TEXT)
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-            plt.tight_layout()
-            st.pyplot(fig); plt.close()
+            gauge_fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=pct,
+                number={'suffix': '%', 'font': {'size': 42, 'color': TEXT}},
+                gauge={
+                    'axis': {'range': [0, 100], 'tickcolor': MUTED,
+                             'tickfont': {'color': MUTED}},
+                    'bar': {'color': r_color, 'thickness': 0.7},
+                    'bgcolor': '#21262d',
+                    'borderwidth': 0,
+                    'steps': [
+                        {'range': [0, 15], 'color': '#0f1f0f'},
+                        {'range': [15, 35], 'color': '#1a1500'},
+                        {'range': [35, 100], 'color': '#1f1116'}
+                    ],
+                    'threshold': {
+                        'line': {'color': AMBER, 'width': 3},
+                        'thickness': 0.8,
+                        'value': 15
+                    }
+                },
+                title={'text': f"<b>{level}</b>",
+                       'font': {'size': 20, 'color': r_color}}
+            ))
+            gauge_fig.update_layout(
+                paper_bgcolor=BG, font_color=TEXT,
+                height=280, margin=dict(t=80, b=20, l=30, r=30)
+            )
+            st.plotly_chart(gauge_fig, use_container_width=True)
 
             st.markdown(f"""
             <div class="kpi-card" style="margin-top:10px;">
-                <div style="color:{r_color};font-size:1.8rem;
-                             font-weight:800;">{level}</div>
                 <div style="color:{MUTED};font-size:0.85rem;margin-top:4px;">
                     Predicted probability {pct:.1f}%
                     at screening threshold {THRESHOLD*100:.0f}%
@@ -692,37 +700,81 @@ with tab1:
             s_vals = pt_shap[s_idx]
             s_data = inp[0][s_idx]
 
-            fig, ax = plt.subplots(figsize=(5, 2.5))
-            fig.patch.set_facecolor(BG)
-            style_ax(ax)
-            b_colors = [RED if v > 0 else GREEN for v in s_vals]
-            ax.barh(
-                [f"{f} = {s_data[i]:.1f}"
-                 for i, f in enumerate(s_feat)],
-                s_vals, color=b_colors,
-                edgecolor='none', height=0.5
+            shap_fig = go.Figure(go.Bar(
+                x=s_vals,
+                y=[f"{f} = {s_data[i]:.1f}" for i, f in enumerate(s_feat)],
+                orientation='h',
+                marker_color=[RED if v > 0 else GREEN for v in s_vals],
+                text=[f'{"▲" if v>0 else "▼"} {abs(v):.3f}' for v in s_vals],
+                textposition='outside',
+                textfont=dict(size=11, color=TEXT),
+                hovertemplate='%{y}<br>SHAP value: %{x:.4f}<extra></extra>'
+            ))
+            shap_fig.add_vline(x=0, line_color=MUTED, line_width=1)
+            shap_fig.update_layout(
+                paper_bgcolor=BG, plot_bgcolor=BG,
+                font_color=TEXT, height=220,
+                margin=dict(t=10, b=40, l=10, r=10),
+                xaxis=dict(title='Red ▲ increases risk  |  Green ▼ decreases risk',
+                           gridcolor=GRID, zeroline=False,
+                           title_font_size=10),
+                yaxis=dict(gridcolor=GRID)
             )
-            ax.axvline(0, color=MUTED, lw=0.8)
-            ax.set_xlabel(
-                'Red increases risk. Green decreases risk.',
-                color=TEXT, fontsize=8
-            )
-            for bar, val in zip(ax.patches, s_vals):
-                ax.text(
-                    val + (0.003 if val >= 0 else -0.003),
-                    bar.get_y() + bar.get_height()/2,
-                    f'{"▲" if val>0 else "▼"} {abs(val):.3f}',
-                    color=TEXT, va='center', fontsize=7,
-                    ha='left' if val >= 0 else 'right'
-                )
-            plt.tight_layout()
-            st.pyplot(fig); plt.close()
+            st.plotly_chart(shap_fig, use_container_width=True)
 
             st.markdown(
                 f'<div class="info-box">'
                 f'<strong>Recommended Action:</strong> {advice}'
                 f'</div>',
                 unsafe_allow_html=True
+            )
+
+            # PDF Report Download
+            report_text = f"""
+DIABETES SCREENING REPORT
+Generated: {datetime.now().strftime('%d %B %Y at %H:%M')}
+Model: XGBoost Tuned (GridSearchCV, AUC 0.766)
+Threshold: {THRESHOLD*100:.0f}%
+{'='*50}
+
+PATIENT PROFILE
+  Age:             {age} years
+  Sex:             {sex}
+  BMI:             {bmi_v:.1f}
+  Systolic BP:     {sbp_v} mmHg
+  Diastolic BP:    {dbp_v} mmHg
+
+RISK ASSESSMENT
+  Predicted Risk:  {pct:.1f}%
+  Classification:  {level}
+  Action:          {advice}
+
+FEATURE CONTRIBUTIONS (SHAP)
+"""
+            for i, f in enumerate(s_feat):
+                direction = "increases" if s_vals[i] > 0 else "decreases"
+                report_text += f"  {f} = {s_data[i]:.1f}  →  {direction} risk by {abs(s_vals[i]):.4f}\n"
+
+            if a1c_v > 0 or glc_v > 0:
+                report_text += f"\nCLINICAL LAB VALUES\n"
+                if a1c_v > 0: report_text += f"  HbA1c:   {a1c_v}%\n"
+                if glc_v > 0: report_text += f"  Glucose:  {glc_v} mg/dL\n"
+
+            report_text += f"""
+{'='*50}
+DISCLAIMER: This is a screening tool only and does not
+constitute a clinical diagnosis. Always consult a qualified
+healthcare professional for medical advice.
+
+System: Early Detection of T2DM | NHANES 2015-2018
+Nottingham Trent University | BSc Computing FYP 2026
+"""
+            st.download_button(
+                label="📄 Download Screening Report",
+                data=report_text,
+                file_name=f"diabetes_screening_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
             )
 
             a1c_in = a1c_v  if a1c_v  > 0 else None
@@ -853,53 +905,68 @@ with tab2:
     col_l, col_r = st.columns(2)
     with col_l:
         st.markdown("#### ROC Curves")
-        st.caption("Curves closer to the upper left corner "
-                   "indicate stronger performance. "
-                   "Tuned XGBoost is the primary model.")
-        fig, ax = plt.subplots(figsize=(7, 5))
-        fig.patch.set_facecolor(BG)
-        style_ax(ax)
+        st.caption("Hover over any curve for exact values. "
+                   "Curves closer to the upper left corner "
+                   "indicate stronger performance.")
+        roc_fig = go.Figure()
         colors5 = [BLUE, GREEN, AMBER, PURPLE, RED]
         for (name, model, X_t, primary), c in zip(all_models, colors5):
             yp = model.predict_proba(X_t)[:, 1]
             fpr, tpr, _ = roc_curve(y_test, yp)
             auc = roc_auc_score(y_test, yp)
-            lw  = 2.5 if primary else 1.5
-            ls  = '-'  if primary else '--'
-            lbl = f"{'[Primary] ' if primary else ''}{name} ({auc:.3f})"
-            ax.plot(fpr, tpr, color=c, lw=lw, ls=ls, label=lbl)
-        ax.plot([0,1],[0,1], color=GRID, ls='--',
-                lw=1, label='Random (0.500)')
-        ax.set_xlabel("False Positive Rate")
-        ax.set_ylabel("True Positive Rate")
-        ax.set_title("ROC Curves")
-        ax.legend(facecolor=BG, labelcolor=TEXT, fontsize=7)
-        plt.tight_layout()
-        st.pyplot(fig); plt.close()
+            lw  = 3 if primary else 1.5
+            dash = 'solid' if primary else 'dash'
+            lbl = f"{'★ ' if primary else ''}{name} ({auc:.3f})"
+            roc_fig.add_trace(go.Scatter(
+                x=fpr, y=tpr, mode='lines', name=lbl,
+                line=dict(color=c, width=lw, dash=dash),
+                hovertemplate='FPR: %{x:.3f}<br>TPR: %{y:.3f}<extra></extra>'
+            ))
+        roc_fig.add_trace(go.Scatter(
+            x=[0,1], y=[0,1], mode='lines', name='Random (0.500)',
+            line=dict(color=GRID, width=1, dash='dash'),
+            showlegend=True
+        ))
+        roc_fig.update_layout(
+            paper_bgcolor=BG, plot_bgcolor=BG,
+            font_color=TEXT, height=450,
+            margin=dict(t=30, b=40, l=50, r=20),
+            xaxis=dict(title='False Positive Rate', gridcolor=GRID,
+                       zeroline=False),
+            yaxis=dict(title='True Positive Rate', gridcolor=GRID,
+                       zeroline=False),
+            legend=dict(bgcolor=BG, bordercolor=GRID, borderwidth=1,
+                        font=dict(size=10))
+        )
+        st.plotly_chart(roc_fig, use_container_width=True)
 
     with col_r:
         st.markdown("#### Missed Diabetics at Threshold 0.15")
-        st.caption("Fewer missed patients means better screening performance. "
-                   "Green bar is the primary model.")
-        fig, ax = plt.subplots(figsize=(7, 5))
-        fig.patch.set_facecolor(BG)
-        style_ax(ax)
+        st.caption("Fewer missed patients means better screening. "
+                   "Hover for exact counts.")
         names_r   = [r['Model'] for _, r in res_df.iterrows()]
         missed_r  = [r['Missed'] for _, r in res_df.iterrows()]
         primary_r = [r['Primary'] for _, r in res_df.iterrows()]
         bar_clrs  = [GREEN if p else BLUE for p in primary_r]
-        bars = ax.barh(names_r[::-1], missed_r[::-1],
-                       color=bar_clrs[::-1],
-                       edgecolor='none', height=0.5)
-        for bar, val in zip(bars, missed_r[::-1]):
-            ax.text(bar.get_width() + 1,
-                    bar.get_y() + bar.get_height()/2,
-                    str(val), color=TEXT,
-                    va='center', fontsize=9)
-        ax.set_xlabel("Missed Diabetic Patients")
-        ax.set_title("False Negatives at Threshold 0.15")
-        plt.tight_layout()
-        st.pyplot(fig); plt.close()
+        missed_fig = go.Figure(go.Bar(
+            x=missed_r[::-1],
+            y=names_r[::-1],
+            orientation='h',
+            marker_color=bar_clrs[::-1],
+            text=missed_r[::-1],
+            textposition='outside',
+            textfont=dict(color=TEXT, size=12),
+            hovertemplate='%{y}: %{x} missed<extra></extra>'
+        ))
+        missed_fig.update_layout(
+            paper_bgcolor=BG, plot_bgcolor=BG,
+            font_color=TEXT, height=450,
+            margin=dict(t=30, b=40, l=10, r=40),
+            xaxis=dict(title='Missed Diabetic Patients', gridcolor=GRID,
+                       zeroline=False),
+            yaxis=dict(gridcolor=GRID)
+        )
+        st.plotly_chart(missed_fig, use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1810,4 +1877,4 @@ with col_f1:
 with col_f2:
     st.caption("NHANES 2015-2018   Tuned XGBoost   AUC 0.7658")
 with col_f3:
-    st.caption("Nottingham Trent University   FYP 2026")  
+    st.caption("Nottingham Trent University   FYP 2026")
