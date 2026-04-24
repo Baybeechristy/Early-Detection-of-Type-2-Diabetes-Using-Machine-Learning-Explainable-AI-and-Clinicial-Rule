@@ -1,4 +1,4 @@
-# 🏥 Early Detection of Type 2 Diabetes Using Machine Learning, Explainable AI & Clinical Rule Validation
+# 🏥 Early Detection of Type 2 Diabetes Using Machine Learning, Explainable AI & Interactive Dashboard Visualisation
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://2aaad6bepdxuhswjdxz9b5.streamlit.app)
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python&logoColor=white)
@@ -37,7 +37,7 @@ Using only **age, sex, BMI, systolic BP and diastolic BP**, this system screens 
 |--------|-------|----------------|
 | **Primary Model** | XGBoost (Tuned via 192-combination GridSearchCV) | Systematic optimisation, not default settings |
 | **AUC** | 0.766 | Competitive for 5 non-invasive features |
-| **Recall @ 0.15** | 81.3% — catches 256/315 diabetic patients | Screening priority: minimise missed cases |
+| **Recall @ 0.15** | 81.3%  catches 256/315 diabetic patients | Screening priority: minimise missed cases |
 | **Calibration (ECE)** | 0.0085 | Predicted probabilities match reality within 1% |
 | **Robustness** | AUC std = 0.0134 across 10 seeds | Not a lucky split — genuinely stable |
 | **Missed Cases** | 59 (vs 106 with default XGBoost, vs 315 at threshold 0.50) | Tuning + threshold optimisation saved 256 patients |
